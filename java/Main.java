@@ -4,8 +4,8 @@ import java.util.List;
 
 public class Main {
     public static void main(String[] args) {
-        int vectorAmount = 1000;
-        int vectorSize = 100000;
+        int vectorAmount = 10;
+        int vectorSize = 10;
         DataImpl[] datas = new DataImpl[vectorAmount];
 
         for (int j=0;j<vectorAmount;j++) {
