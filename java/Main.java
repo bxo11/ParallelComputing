@@ -20,7 +20,7 @@ public class Main {
         ParallelCalculator calc = new ParallelCalculator();
         DeltaReceiver receiver = new DeltaReceiverImpl();
 
-        calc.setThreadsNumber(4);
+        calc.setThreadsNumber(16);
         calc.setDeltaReceiver(receiver);
 
         long startTime = System.currentTimeMillis();

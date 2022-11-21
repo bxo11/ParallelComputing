@@ -50,7 +50,6 @@ public class ParallelCalculator implements DeltaParallelCalculator {
 
         while (nextDeltaIndexToApply.get() == current.getKey()) {
             this.deltaReceiver.accept(current.getValue());
-            System.out.println(deltaReceiver.deltas.size());
             indexesToRemove.add(current.getKey());
             if (iterator.hasNext()) current = iterator.next();
             nextDeltaIndexToApply.incrementAndGet();
@@ -109,7 +108,7 @@ public class ParallelCalculator implements DeltaParallelCalculator {
         public Boolean call(){
 
             int id = popFirstTask();
-
+            System.out.println( id);
             increaseUsage(id);
             increaseUsage(id + 1);
 
@@ -121,6 +120,7 @@ public class ParallelCalculator implements DeltaParallelCalculator {
             for (int t = 0; t < threadNumber; t++) {
                 int start = t * chunkSize;
                 int end = Math.min(start + chunkSize, d1.size());
+//                System.out.println(start+" "+end);
                 final Future<List<Delta>> future = findDiffsExecutor.submit(new ProcessVector(start, end, id, d1, d2));
                 futures.add(future);
             }
@@ -137,6 +137,7 @@ public class ParallelCalculator implements DeltaParallelCalculator {
                 deltaQueue.put(id, diffs);
                 returnDeltas();
             }
+            System.out.println( id);
             return true;
         }
     }
