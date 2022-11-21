@@ -1,5 +1,4 @@
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -36,14 +35,6 @@ public class Main {
 
             calc.addData(datas[j]);
         }
-
-
-//            try {
-//                Thread.sleep(3000);
-//            } catch (InterruptedException e) {
-//                throw new RuntimeException(e);
-//            }
-
 
         long stopTime = System.currentTimeMillis();
         System.out.println((stopTime - startTime));

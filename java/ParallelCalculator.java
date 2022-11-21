@@ -14,6 +14,7 @@ public class ParallelCalculator implements DeltaParallelCalculator {
 
     private ExecutorService tasksExecutor;
     private ExecutorService findDiffsExecutor;
+    List<Future<List<Delta>>> taskFutures = new ArrayList<>();
 
     public boolean isFinished() {
         return deltaQueue.size() == 0;
@@ -33,7 +34,6 @@ public class ParallelCalculator implements DeltaParallelCalculator {
 
     /**
      * @param id smaller id of a pair of data
-     * @return differences
      */
     public void findDiffs(int id) {
         increaseUsage(id);
@@ -47,36 +47,9 @@ public class ParallelCalculator implements DeltaParallelCalculator {
         for (int t = 0; t < this.threadNumber; t++) {
             int start = t * chunkSize;
             int end = Math.min(start + chunkSize, d1.size());
-            final Future<List<Delta>> future = findDiffsExecutor.submit(new MyInfoCallable(start, end, id, d1, d2));
+            final Future<List<Delta>> future = findDiffsExecutor.submit(new DiffsFinder(start, end, id, d1, d2));
             futures.add(future);
-//            findDiffsExecutor.submit(() -> {
-
-//        exe[t] = new Thread(() -> {
-//                List<Delta> diffs = new ArrayList<>();
-//                for (int i = start; i < end; i++) {
-//                    int diff;
-//                        diff = d2.get(i) - d1.get(i);
-//                        if (diff != 0) {
-//                            diffs.add(new Delta(id, i, diff));
-//                    }
-//                }
-//                synchronized (deltaQueue) {
-//                    if (!deltaQueue.containsKey(id)) {
-//                        this.deltaQueue.put(id, diffs);
-//                    } else {
-//                        this.deltaQueue.get(id).addAll(diffs);
-//                    }
-//                }
-//            });
         }
-
-//        for (int t = 0; t < this.threadNumber; t++) {
-//            try {
-//                exe[t].join();
-//            } catch (InterruptedException e) {
-//                throw new RuntimeException(e);
-//            }
-//        }
 
         List<Delta> diffs = new ArrayList<>();
         for (Future<List<Delta>> f : futures) {
@@ -104,7 +77,7 @@ public class ParallelCalculator implements DeltaParallelCalculator {
 
         while (nextDeltaIndexToApply.get() == current.getKey()) {
             this.deltaReceiver.accept(current.getValue());
-//            System.out.println(deltaReceiver.deltas.size());
+            System.out.println(deltaReceiver.deltas.size());
             indexesToRemove.add(current.getKey());
             if (iterator.hasNext()) current = iterator.next();
             nextDeltaIndexToApply.incrementAndGet();
@@ -151,21 +124,21 @@ public class ParallelCalculator implements DeltaParallelCalculator {
 
         while (tasks.size() > 0) {
             int popId = popFirstTask();
-            findDiffs(popId);
-//            tasksExecutor.execute(() -> findDiffs(popId));
+//            findDiffs(popId);
+            tasksExecutor.execute(() -> findDiffs(popId));
         }
     }
 }
 
-class MyInfoCallable implements Callable<List<Delta>> {
-    private int start;
-    private int end;
+class DiffsFinder implements Callable<List<Delta>> {
+    private final int start;
+    private final int end;
 
-    private int id;
-    private List<Integer> d1;
-    private List<Integer> d2;
+    private final int id;
+    private final List<Integer> d1;
+    private final List<Integer> d2;
 
-    public MyInfoCallable(int start, int end, int id, List<Integer> d1, List<Integer> d2) {
+    public DiffsFinder(int start, int end, int id, List<Integer> d1, List<Integer> d2) {
         this.start = start;
         this.end = end;
         this.id = id;
