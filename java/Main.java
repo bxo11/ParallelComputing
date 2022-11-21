@@ -1,11 +1,12 @@
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 public class Main {
     public static void main(String[] args) {
         int vectorAmount = 10;
-        int vectorSize = 10;
+        int vectorSize = 10000000;
         DataImpl[] datas = new DataImpl[vectorAmount];
 
         for (int j=0;j<vectorAmount;j++) {
@@ -20,25 +21,33 @@ public class Main {
         ParallelCalculator calc = new ParallelCalculator();
         DeltaReceiver receiver = new DeltaReceiverImpl();
 
-        calc.setThreadsNumber(1);
+        calc.setThreadsNumber(4);
         calc.setDeltaReceiver(receiver);
 
         long startTime = System.currentTimeMillis();
+
+        List<Integer> shuffledIndexes = new ArrayList<>();
         for (int j=0;j<vectorAmount;j++) {
+            shuffledIndexes.add(j);
+        }
+        Collections.shuffle(shuffledIndexes);
+
+        for (Integer j : shuffledIndexes) {
+
             calc.addData(datas[j]);
         }
 
-        while(!calc.isFinished()) {
-            try {
-                Thread.sleep(3);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-        }
+
+//            try {
+//                Thread.sleep(3000);
+//            } catch (InterruptedException e) {
+//                throw new RuntimeException(e);
+//            }
+
 
         long stopTime = System.currentTimeMillis();
         System.out.println((stopTime - startTime));
-        System.out.println();
+        System.out.println("end");
 
     }
 }
