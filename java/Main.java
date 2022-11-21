@@ -36,6 +36,14 @@ public class Main {
             calc.addData(datas[j]);
         }
 
+        if (!calc.isFinished()){
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
         long stopTime = System.currentTimeMillis();
         System.out.println((stopTime - startTime));
         System.out.println("end");
