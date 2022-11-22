@@ -6,7 +6,7 @@ public class Main {
     public static void main(String[] args) {
         int vectorAmount = 10;
         int vectorSize = 10000000;
-        DataImpl[] datas = new DataImpl[vectorAmount];
+        Data[] datas = new DataImpl[vectorAmount];
 
         for (int j=0;j<vectorAmount;j++) {
             List<Integer> l1 = new ArrayList<>(vectorSize);
@@ -20,7 +20,7 @@ public class Main {
         ParallelCalculator calc = new ParallelCalculator();
         DeltaReceiver receiver = new DeltaReceiverImpl();
 
-        calc.setThreadsNumber(16);
+        calc.setThreadsNumber(4);
         calc.setDeltaReceiver(receiver);
 
         long startTime = System.currentTimeMillis();
@@ -31,8 +31,10 @@ public class Main {
         }
         Collections.shuffle(shuffledIndexes);
 
+//        int x=0;
+//        while(x<10){
+//        }
         for (Integer j : shuffledIndexes) {
-
             calc.addData(datas[j]);
         }
 
