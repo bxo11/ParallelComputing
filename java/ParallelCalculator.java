@@ -9,7 +9,7 @@ public class ParallelCalculator implements DeltaParallelCalculator {
     private final Map<Integer, Integer> numberOfVectorsUsage = new HashMap<>();
     private final Map<Integer, List<Delta>> deltaQueue = new TreeMap<>();
     private int nextDeltaIndexToReturn = 0;
-    private final List<Integer> taskOrder = new ArrayList<>(); //single value represent smaller index for a pair of Data, e.g. 1 represents a pair of 1 and 2
+    private final Map<Integer, Integer> taskOrder = new TreeMap<>(); //single value represent smaller index for a pair of Data, e.g. 1 represents a pair of 1 and 2
     private ExecutorService tasksExecutor;
     private ExecutorService findDiffsExecutor;
     List<Future<Boolean>> taskFutures = new ArrayList<>();
@@ -67,9 +67,8 @@ public class ParallelCalculator implements DeltaParallelCalculator {
     }
 
     private int popFirstTask() {
-        Collections.sort(taskOrder);
-        int returnId = taskOrder.get(0);
-        taskOrder.remove(0);
+        int returnId = taskOrder.entrySet().iterator().next().getKey();
+        taskOrder.remove(returnId);
         return returnId;
     }
 
@@ -95,12 +94,12 @@ public class ParallelCalculator implements DeltaParallelCalculator {
         int repeats = 0;
 
         if (vectorHistory.contains(data.getDataId() - 1)) {
-            taskOrder.add(data.getDataId() - 1);
+            taskOrder.put(data.getDataId() - 1, data.getDataId() - 1);
             repeats++;
         }
 
         if (vectorHistory.contains(data.getDataId() + 1)) {
-            taskOrder.add(data.getDataId());
+            taskOrder.put(data.getDataId(), data.getDataId());
             repeats++;
         }
 
@@ -138,6 +137,7 @@ public class ParallelCalculator implements DeltaParallelCalculator {
                 }
             }
 
+            //TODO: remove synchronized block
             synchronized (deltaQueue) {
                 deltaQueue.put(id, diffs);
                 returnDeltas();
@@ -178,4 +178,41 @@ class ProcessVector implements Callable<List<Delta>> {
         return diffs;
     }
 
+}
+
+class DeltaReceiverImpl implements DeltaReceiver {
+    public final List<Delta> deltas = new ArrayList<>();
+    @Override
+    public void accept(List<Delta> deltas) {
+        this.deltas.addAll(deltas);
+    }
+}
+
+class DataImpl implements Data {
+    private final int dataId;
+    private final List<Integer> vector;
+
+    public DataImpl(int dataId, List<Integer> vector) {
+        this.dataId = dataId;
+        this.vector = vector;
+    }
+
+    public List<Integer> getVector() {
+        return vector;
+    }
+
+    @Override
+    public int getDataId() {
+        return dataId;
+    }
+
+    @Override
+    public int getSize() {
+        return vector.size();
+    }
+
+    @Override
+    public int getValue(int idx) {
+        return vector.get(idx);
+    }
 }

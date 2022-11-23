@@ -5,7 +5,7 @@ import java.util.List;
 public class Main {
     public static void main(String[] args) {
         int vectorAmount = 10;
-        int vectorSize = 10000000;
+        int vectorSize = 2000000;
         Data[] datas = new DataImpl[vectorAmount];
 
         for (int j=0;j<vectorAmount;j++) {
@@ -40,7 +40,7 @@ public class Main {
 
         if (!calc.isFinished()){
             try {
-                Thread.sleep(100);
+                Thread.sleep(1);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
