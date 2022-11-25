@@ -1,3 +1,5 @@
+import java.net.MalformedURLException;
+import java.rmi.Naming;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
@@ -9,17 +11,17 @@ public class ReservationSystem extends UnicastRemoteObject implements Cinema {
 
     private Map<Integer, String> seatToUser = new HashMap<>();
 
+    public static void main(String[] args) throws RemoteException {
+        ReservationSystem system = new ReservationSystem();
+        system.configuration(10, 30000);
+        System.out.println("Server is running");
+    }
+
     public ReservationSystem() throws RemoteException {
         super();
         try {
-            System.setProperty("java.rmi.server.hostname","192.168.1.2");
-            Cinema stub = (Cinema) UnicastRemoteObject.exportObject(this, 0);
-            Registry registry = LocateRegistry.getRegistry();
-            registry.rebind(SERVICE_NAME, stub);
-//            registry.bind(SERVICE_NAME, stub);
-            System.out.println(SERVICE_NAME + " bound");
-        } catch (Exception e) {
-            System.err.println(SERVICE_NAME + " exception:");
+            Naming.rebind(SERVICE_NAME, this);
+        } catch (MalformedURLException e) {
             e.printStackTrace();
         }
     }

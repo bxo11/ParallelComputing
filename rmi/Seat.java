@@ -4,7 +4,6 @@ import java.sql.Timestamp;
 public class Seat implements Serializable {
     final int number;
     String user = null;
-    String reservedByUser = null;
     boolean isFree = true;
     Timestamp latestReservationTime;
     final float timeForConfirmation;
