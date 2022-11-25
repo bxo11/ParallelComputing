@@ -1,9 +1,11 @@
+import java.io.Serializable;
 import java.net.MalformedURLException;
 import java.rmi.Naming;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
+import java.sql.Timestamp;
 import java.util.*;
 
 public class ReservationSystem extends UnicastRemoteObject implements Cinema {
@@ -27,7 +29,7 @@ public class ReservationSystem extends UnicastRemoteObject implements Cinema {
     }
 
     @Override
-    public void configuration(int seats, long timeForConfirmation) throws RemoteException {
+    synchronized public void configuration(int seats, long timeForConfirmation) throws RemoteException {
         for (int i = 0; i < seats; i++) {
             seatsRegistry.put(i, new Seat(i, timeForConfirmation));
         }
@@ -46,15 +48,16 @@ public class ReservationSystem extends UnicastRemoteObject implements Cinema {
     }
 
     @Override
-    public boolean reservation(String user, Set<Integer> seats) throws RemoteException {
+    synchronized public boolean reservation(String user, Set<Integer> seats) throws RemoteException {
         for (int number : seats) {
             if (!seatsRegistry.get(number).canBeReserved()) {
                 return false;
             }
         }
 
+        long reservationTime = System.currentTimeMillis();
         for (int number : seats) {
-            seatsRegistry.get(number).setReservation();
+            seatsRegistry.get(number).setReservation(reservationTime);
             seatToUser.put(number, user);
         }
 
@@ -62,7 +65,7 @@ public class ReservationSystem extends UnicastRemoteObject implements Cinema {
     }
 
     @Override
-    public boolean confirmation(String user) throws RemoteException {
+    synchronized public boolean confirmation(String user) throws RemoteException {
         for (Map.Entry<Integer, String> entry : seatToUser.entrySet()) {
             if (entry.getValue().equals(user)) {
                 if (seatsRegistry.get(entry.getKey()).timeHasPass()) {
@@ -89,5 +92,36 @@ public class ReservationSystem extends UnicastRemoteObject implements Cinema {
     @Override
     public String whoHasReservation(int seat) throws RemoteException {
         return seatsRegistry.get(seat).user;
+    }
+}
+
+class Seat implements Serializable {
+    final int number;
+    String user = null;
+    boolean isFree = true;
+    Timestamp latestReservationTime;
+    final float timeForConfirmation;
+
+    public Seat(int number, float timeForConfirmation) {
+        this.number = number;
+        this.timeForConfirmation = timeForConfirmation;
+    }
+
+    void setReservation(long reservationTime) {
+        this.latestReservationTime = new Timestamp(reservationTime + (long) timeForConfirmation);
+    }
+
+    boolean canBeReserved() {
+        return this.isFree && timeHasPass();
+    }
+
+    boolean timeHasPass() {
+        if (latestReservationTime == null) return true;
+        return this.latestReservationTime.before(new Timestamp(System.currentTimeMillis()));
+    }
+
+    void confirmReservation(String user) {
+        this.isFree = false;
+        this.user = user;
     }
 }
