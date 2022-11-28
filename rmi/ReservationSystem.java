@@ -66,13 +66,17 @@ public class ReservationSystem extends UnicastRemoteObject implements Cinema {
 
     @Override
     synchronized public boolean confirmation(String user) throws RemoteException {
+        int numberOfReservations=0;
+
         for (Map.Entry<Integer, String> entry : seatToUser.entrySet()) {
             if (entry.getValue().equals(user)) {
+                numberOfReservations++;
                 if (seatsRegistry.get(entry.getKey()).timeHasPass()) {
                     return false;
                 }
             }
         }
+        if (numberOfReservations==0) return false;
 
         List<Integer> toRemove = new ArrayList<>();
         for (Map.Entry<Integer, String> entry : seatToUser.entrySet()) {
