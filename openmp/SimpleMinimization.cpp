@@ -33,6 +33,7 @@ SimpleMinimization::SimpleMinimization(Function *f, double timeLimit) : Minimiza
 
 SimpleMinimization::~SimpleMinimization()
 {
+	free(seed);
 }
 
 void SimpleMinimization::find(double dr_ini, double dr_fin,
@@ -47,10 +48,11 @@ void SimpleMinimization::find(double dr_ini, double dr_fin,
 		double localBestX, localBestY, localBestZ, localBestV;
 		double random_number;
 
-#pragma omp critical
-		{
-			std::cout << "Start -  " << omp_get_thread_num() << std::endl;
-		}
+		// #pragma omp critical
+		// 		{
+		// 			std::cout << "Start -  " << omp_get_thread_num() << std::endl;
+		// 		}
+
 		generateRandomPosition(&localX, &localY, &localZ, id);
 		localBestX = localX;
 		localBestY = localY;
@@ -58,11 +60,13 @@ void SimpleMinimization::find(double dr_ini, double dr_fin,
 
 		localBestV = function->value(localBestX, localBestY, localBestZ);
 		v = localBestV;
-#pragma omp critical
-		{
-			std::cout << "Init position - " << omp_get_thread_num() << ": " << localX << ", " << localY << ", " << localZ
-					  << " value = " << v << std::endl;
-		}
+
+		// #pragma omp critical
+		// 		{
+		// 			std::cout << "Init position - " << omp_get_thread_num() << ": " << localX << ", " << localY << ", " << localZ
+		// 					  << " value = " << v << std::endl;
+		// 		}
+
 		while (hasTimeToContinue())
 		{
 			// inicjujemy losowo polozenie startowe w obrebie kwadratu o bokach od min do max
@@ -130,6 +134,7 @@ void SimpleMinimization::find(double dr_ini, double dr_fin,
 			}
 		}
 		// mamy czas na obliczenia
+
 #pragma omp critical
 		{
 			if (localBestV < bestV)
@@ -141,7 +146,6 @@ void SimpleMinimization::find(double dr_ini, double dr_fin,
 			}
 		}
 	}
-	free(seed);
 }
 
 void SimpleMinimization::generateRandomPosition(double *pointerX, double *pointerY, double *pointerZ, int id)
