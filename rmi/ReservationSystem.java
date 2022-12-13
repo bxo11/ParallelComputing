@@ -2,8 +2,6 @@ import java.io.Serializable;
 import java.net.MalformedURLException;
 import java.rmi.Naming;
 import java.rmi.RemoteException;
-import java.rmi.registry.LocateRegistry;
-import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
 import java.sql.Timestamp;
 import java.util.*;
@@ -71,9 +69,6 @@ public class ReservationSystem extends UnicastRemoteObject implements Cinema {
         for (Map.Entry<Integer, String> entry : seatToUser.entrySet()) {
             if (entry.getValue().equals(user)) {
                 numberOfReservations++;
-                if (seatsRegistry.get(entry.getKey()).timeHasPass()) {
-                    return false;
-                }
             }
         }
         if (numberOfReservations==0) return false;
