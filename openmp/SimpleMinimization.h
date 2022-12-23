@@ -8,6 +8,7 @@ class SimpleMinimization: public Minimization {
 private:
 	void generateRandomPosition(double* pointerX,double* pointerY,double* pointerZ, int id);
 	drand48_data *seed;
+	double *random_value_holder;
 public:
 	void find(double dr_ini, double dr_fin, int idleStepsLimit);
 	SimpleMinimization(Function *f, double timeLimit);
