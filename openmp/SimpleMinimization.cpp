@@ -31,6 +31,9 @@ SimpleMinimization::SimpleMinimization(Function *f, double timeLimit) : Minimiza
 		srand48_r(a, &seed[i]);
 		a++;
 	}
+
+	generateRandomPosition(&bestX, &bestY, &bestZ, 0);
+	bestV = function->value(bestX, bestY, bestZ);
 }
 
 SimpleMinimization::~SimpleMinimization()
