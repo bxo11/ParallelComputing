@@ -14,47 +14,34 @@ using namespace std;
 
 SimpleMinimization::SimpleMinimization(Function *f, double timeLimit) : Minimization(f, timeLimit)
 {
-	int SIZE;
+	struct drand48_data lBuffer;
+	int lRseed = 0;
+	double randValue = 0;
+	srand48_r (lRseed, &lBuffer);
 
-	#pragma omp parallel
-	{
-		SIZE = omp_get_num_threads();
-	}
-
-	seed = new drand48_data[SIZE];
-	random_value_holder = new double[SIZE];
-
-	unsigned long a = (unsigned long)time(NULL);
-
-	for (int i = 0; i < SIZE; i++)
-	{
-		srand48_r(a, &seed[i]);
-		a++;
-	}
-
-	generateRandomPosition(&bestX, &bestY, &bestZ, 0);
+	generateRandomPosition(&bestX, &bestY, &bestZ, lBuffer, lRseed, randValue);
 	bestV = function->value(bestX, bestY, bestZ);
 }
 
 SimpleMinimization::~SimpleMinimization()
 {
-	free(random_value_holder);
-	free(seed);
 }
 
 void SimpleMinimization::find(double dr_ini, double dr_fin,
 							  int idleStepsLimit)
 {
-	#pragma omp parallel
+	#pragma omp parallel private(rseed, buffer)
 	{
 		int idleSteps = 0; // liczba krokow, ktore nie poprawily lokalizacji
 		int id = omp_get_thread_num();
-
+		int rseed = omp_get_thread_num();
+		double randValue = 0;
+		srand48_r (rseed, &buffer);
 		double v, xnew, ynew, znew, vnew, dr;
 		double localX, localY, localZ;
 		double localBestX, localBestY, localBestZ, localBestV;
 
-		generateRandomPosition(&localBestX, &localBestY, &localBestZ, id);
+		generateRandomPosition(&localBestX, &localBestY, &localBestZ, buffer, rseed, randValue);
 		localBestV = function->value(localBestX, localBestY, localBestZ);
 
 		#pragma omp critical
@@ -66,7 +53,7 @@ void SimpleMinimization::find(double dr_ini, double dr_fin,
 		while (hasTimeToContinue())
 		{
 			// inicjujemy losowo polozenie startowe w obrebie kwadratu o bokach od min do max
-			generateRandomPosition(&localX, &localY, &localZ, id);
+			generateRandomPosition(&localX, &localY, &localZ, buffer, rseed, randValue);
 
 			v = function->value(localX, localY, localZ); // wartosc funkcji w punkcie startowym
 
@@ -75,12 +62,12 @@ void SimpleMinimization::find(double dr_ini, double dr_fin,
 
 			while ((dr > dr_fin) && (idleSteps < idleStepsLimit))
 			{
-				drand48_r(&seed[id], &random_value_holder[id]);
-				xnew = localX + (random_value_holder[id] - 0.5) * dr;
-				drand48_r(&seed[id], &random_value_holder[id]);
-				ynew = localY + (random_value_holder[id] - 0.5) * dr;
-				drand48_r(&seed[id], &random_value_holder[id]);
-				znew = localZ + (random_value_holder[id] - 0.5) * dr;
+				drand48_r(&buffer, &randValue);
+				xnew = localX + (randValue - 0.5) * dr;
+				drand48_r(&buffer, &randValue);
+				ynew = localY + (randValue - 0.5) * dr;
+				drand48_r(&buffer, &randValue);
+				znew = localZ + (randValue - 0.5) * dr;
 
 				// upewniamy sie, ze nie opuscilismy przestrzeni poszukiwania rozwiazania
 				xnew = limitX(xnew);
@@ -144,12 +131,12 @@ void SimpleMinimization::find(double dr_ini, double dr_fin,
 	}
 }
 
-void SimpleMinimization::generateRandomPosition(double *pointerX, double *pointerY, double *pointerZ, int id)
+void SimpleMinimization::generateRandomPosition(double *pointerX, double *pointerY, double *pointerZ, drand48_data buffer, int rseed, double randValue)
 {
-	drand48_r(&seed[id], &random_value_holder[id]);
-	*pointerX = random_value_holder[id] * (maxX - minX) + minX;
-	drand48_r(&seed[id], &random_value_holder[id]);
-	*pointerY = random_value_holder[id] * (maxY - minY) + minY;
-	drand48_r(&seed[id], &random_value_holder[id]);
-	*pointerZ = random_value_holder[id] * (maxZ - minZ) + minZ;
+	drand48_r(&buffer, &randValue);
+	*pointerX = randValue * (maxX - minX) + minX;
+	drand48_r(&buffer, &randValue);
+	*pointerY = randValue * (maxY - minY) + minY;
+	drand48_r(&buffer, &randValue);
+	*pointerZ = randValue * (maxZ - minZ) + minZ;
 }
