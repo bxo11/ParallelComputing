@@ -19,8 +19,9 @@ SimpleMinimization::SimpleMinimization(Function *f, double timeLimit) : Minimiza
 	double randValue = 0;
 	srand48_r (lRseed, &lBuffer);
 
-	generateRandomPosition(&bestX, &bestY, &bestZ, lBuffer, lRseed, randValue);
-	bestV = function->value(bestX, bestY, bestZ);
+	// generateRandomPosition(&bestX, &bestY, &bestZ, lBuffer, lRseed, randValue);
+	// bestV = function->value(bestX, bestY, bestZ);
+	bestV = 0;
 }
 
 SimpleMinimization::~SimpleMinimization()
@@ -39,16 +40,20 @@ void SimpleMinimization::find(double dr_ini, double dr_fin,
 		srand48_r (rseed, &buffer);
 		double v, xnew, ynew, znew, vnew, dr;
 		double localX, localY, localZ;
-		double localBestX, localBestY, localBestZ, localBestV;
+		double localBestX, localBestY, localBestZ, localBestV =0;
 
-		generateRandomPosition(&localBestX, &localBestY, &localBestZ, buffer, rseed, randValue);
-		localBestV = function->value(localBestX, localBestY, localBestZ);
+		// generateRandomPosition(&localBestX, &localBestY, &localBestZ, buffer, rseed, randValue);
+		// localBestV = function->value(localBestX, localBestY, localBestZ);
+		// #pragma omp critical
+		// 	{
+		// functionCalls++;
+		// 	}
 
-		#pragma omp critical
-				{
-					std::cout << "Init position - " << id << ": " << localBestX << ", " << localBestY << ", " << localBestZ
-							  << " value = " << localBestV << std::endl;
-				}
+		// #pragma omp critical
+		// 		{
+		// 			std::cout << "Init position - " << id << ": " << localBestX << ", " << localBestY << ", " << localBestZ
+		// 					  << " value = " << localBestV << std::endl;
+		// 		}
 
 		while (hasTimeToContinue())
 		{
