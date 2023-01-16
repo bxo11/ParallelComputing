@@ -1,56 +1,6 @@
-
 #include "MPIEnigmaBreaker.h"
-#include "cmath"
 #include "mpi.h"
 
-const uint EXPECTED_MESSAGE_LENGTH = 50;
-const uint MESSAGE_LENGTH = 3000;
-void incrementTab(uint *tab, int lenght, int max, int increase)
-{
-	// cout<<"rotors: "<<lenght<<", maxValue: "<<max<<endl;
-	tab[lenght - 1] += increase;
-	for (int i = lenght - 1; i > 0; i--)
-	{
-		while (tab[i] > max)
-		{
-			tab[i - 1]++;
-			tab[i] -= max + 1;
-		}
-		// cout<<tab[i]<<" ";
-	}
-	// cout<<endl;
-}
-
-void dekodowanie(int value, uint *r, int PODSTAWA, int ROTORS)
-{
-	int stanRotora;
-	int x_do_n;
-	// cout<<"rotors: "<<ROTORS<<", maxValue: "<<PODSTAWA<<endl;
-	for (int i = ROTORS - 1; i >= 0; i--)
-	{
-		x_do_n = pow(PODSTAWA, i);
-		stanRotora = value / x_do_n;
-		value -= stanRotora * x_do_n;
-		r[i] = stanRotora;
-	}
-}
-
-int pow(int x, int n)
-{
-	int iloczyn = 1;
-	for (int i = 0; i < n; i++)
-		iloczyn *= x;
-	return iloczyn;
-}
-
-void pp(uint *r, int size)
-{
-	for (int i = size; i >= 0; i--)
-	{
-		cout << r[i];
-	}
-	cout << endl;
-}
 MPIEnigmaBreaker::MPIEnigmaBreaker(Enigma *enigma, MessageComparator *comparator) : EnigmaBreaker(enigma, comparator)
 {
 }
@@ -60,176 +10,218 @@ MPIEnigmaBreaker::~MPIEnigmaBreaker()
 	delete[] rotorPositions;
 }
 
-int forwardStopSignal(MPI_Request *root_recv_stop, MPI_Request *all_recv_stop, int foundCount)
-{
-	int flag;
-	MPI_Status status;
-	if (foundCount == 0)
-	{
-		MPI_Test(root_recv_stop, &flag, &status);
-	}
-	else
-	{
-		MPI_Wait(root_recv_stop, &status);
-		flag = 1;
-	}
-	if (flag)
-	{
-		printf("Forwarding stop signal from %d\n", status.MPI_SOURCE);
-		MPI_Ibarrier(MPI_COMM_WORLD, all_recv_stop);
-		MPI_Wait(all_recv_stop, MPI_STATUS_IGNORE);
-		// if multiple ranks found something at the same time
-		MPI_Reduce(MPI_IN_PLACE, &foundCount, 1, MPI_INT, MPI_SUM, MPI_ROOT_PROCESS_RANK, MPI_COMM_WORLD);
-		for (foundCount--; foundCount > 0; foundCount--)
-		{
-			MPI_Recv(NULL, 0, MPI_CHAR, MPI_ANY_SOURCE, 999, MPI_COMM_WORLD, &status);
-			cout << "Additional stop from: " << status.MPI_SOURCE << endl;
-		}
-		return 1;
-	}
-	return 0;
-}
-
-void copy2(uint *source, uint sourceLength, uint *destination, uint destinationLength)
-{
-	uint shift = sourceLength - destinationLength;
-
-	for (uint pos = 0; pos < destinationLength; pos++)
-		destination[pos] = source[pos + shift];
-}
-
 void MPIEnigmaBreaker::crackMessage()
 {
 	uint rotorLargestSetting = enigma->getLargestRotorSetting();
 	int rank, size;
-	int repeats = 0;
-	int stopCond = 0;
-	MPI_Request sendRequest, root_recv_stop, all_recv_stop;
-
+	int found = 0;
+	int received = 0;
+	MPI_Request request, foundRequest;
+	
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-	// MPI_Bcast(&messageLength, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-	uint *messageToDecode2 = new uint[MESSAGE_LENGTH];
-	uint *expectedMessage2 = new uint[EXPECTED_MESSAGE_LENGTH];
-
+	MPI_Bcast(&expectedLength, 1, MPI_UNSIGNED, MPI_ROOT_PROCESS_RANK, MPI_COMM_WORLD); // expected lenght
+	MPI_Bcast(&messageLength, 1, MPI_UNSIGNED, MPI_ROOT_PROCESS_RANK, MPI_COMM_WORLD);
 	if (rank == MPI_ROOT_PROCESS_RANK)
 	{
-		for (int i = 0; i < messageLength; i++)
+		MPI_Bcast(expectedBuffer, expectedLength, MPI_UNSIGNED, MPI_ROOT_PROCESS_RANK, MPI_COMM_WORLD); // expected msg
+		MPI_Bcast(messageToDecode, messageLength, MPI_UNSIGNED, MPI_ROOT_PROCESS_RANK, MPI_COMM_WORLD);
+	}
+
+	if (rank != MPI_ROOT_PROCESS_RANK)
+	{
+		expectedBuffer = new uint[expectedLength];
+		messageToDecode = new uint[messageLength];
+		MPI_Bcast(expectedBuffer, expectedLength, MPI_UNSIGNED, MPI_ROOT_PROCESS_RANK, MPI_COMM_WORLD);
+
+		comparator->setExpectedFragment(expectedBuffer, expectedLength);
+		
+		MPI_Bcast(messageToDecode, messageLength, MPI_UNSIGNED, MPI_ROOT_PROCESS_RANK, MPI_COMM_WORLD);
+		setMessageToDecode(messageToDecode, messageLength);
+	}
+
+	// teraz zastanowic sie nad swoim zakresem prac po rotorsetting i ilosci procesow
+	// rank;
+	// rotorLargestSetting
+
+	int myFirstRotorSetting = 0;
+	int myMaxRotorSetting = 0;
+
+	// WYLICZANIE CZESCI DLA DANEGO PROCESU
+
+	int proportions[size]; // dla kazdego procesu, ile przyjmie , pod jego index
+
+	int forAll = rotorLargestSetting / size;
+
+	for (int i = 0; i < size; i++)
+	{
+		proportions[i] = forAll;
+	}
+
+	int remainder = rotorLargestSetting % size;
+
+	// tu beda zmiany dla rownej pracy
+	while (remainder > 0)
+	{
+		for (int i = 0; i < size; i++)
 		{
-			messageToDecode2[i] = messageToDecode[i];
+			if (remainder <= 0)
+			{
+				break;
+			}
+			proportions[i] += 1;
+			remainder--;
 		}
 	}
 
-	MPI_Bcast(messageToDecode2, MESSAGE_LENGTH, MPI_INT, 0, MPI_COMM_WORLD);
+	int beg = 0;
+	int end = -1; // poczatek i koniec przedzialu krecenia pierwszym rotorem
 
-	// pp(messageToDecode,EXPECTED_MESSAGE_LENGTH);
+	for (int i = 0; i < size; i++)
+	{
 
-	setMessageToDecode(messageToDecode2, MESSAGE_LENGTH);
-	copy2(messageToDecode2, MESSAGE_LENGTH, expectedMessage2, EXPECTED_MESSAGE_LENGTH);
-	setSampleToFind(expectedMessage2, EXPECTED_MESSAGE_LENGTH);
+		end += proportions[i]; // -1 cause index
+		if (rank == i)
+		{
 
-	// pp(messageToDecode2,EXPECTED_MESSAGE_LENGTH);
+			myFirstRotorSetting = beg;
+			myMaxRotorSetting = end;
+
+			if (rank == size - 1)
+			{ // bo rotory leca od 0 - max, a nie MAX-1
+				myMaxRotorSetting += 1;
+			}
+
+			break;
+			// return rotorSettingsToCheck;
+		}
+		beg += proportions[i]; // if it was 0-17, then beg is 18 index
+	}
+
+	// KONIEC WYLICZANIA CZESCI DLA DANEGO PROCESU
+
+	// cout <<"rank: " << rank <<" size: "<< size <<" first: "<< myFirstRotorSetting <<" max: " << myMaxRotorSetting <<endl;
+
+	uint *rMax = new uint[MAX_ROTORS];
+	for (uint rotor = 0; rotor < MAX_ROTORS; rotor++)
+	{
+		if (rotor < rotors)
+			rMax[rotor] = rotorLargestSetting;
+		else
+			rMax[rotor] = 0;
+	}
 
 	uint *r = new uint[MAX_ROTORS];
-	for (int j = 0; j < rotors; j++)
-	{
-		r[j] = 0;
-	}
-	r[rotors - 1] = rank;
+
+	int ready = 0;									// used for root
+	uint *rotorsPositionMessage = new uint[rotors]; // TO JEST W SOLUTION FOUND, pozmieniac MIEJSCE, PRZESYL CZY COS
 
 	if (rank == MPI_ROOT_PROCESS_RANK)
 	{
-		MPI_Irecv(NULL, 0, MPI_CHAR, MPI_ANY_SOURCE, 999, MPI_COMM_WORLD, &root_recv_stop);
-	}
-	else
-	{
-		MPI_Ibarrier(MPI_COMM_WORLD, &all_recv_stop);
+		MPI_Irecv(rotorsPositionMessage, rotors, MPI_UNSIGNED, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &request);
 	}
 
-	for (int i = rank; i < pow(rotorLargestSetting+1, rotors); i += size)
+	if (rank != MPI_ROOT_PROCESS_RANK)
 	{
-		dekodowanie(i, r, rotorLargestSetting, rotors);
-		// incrementTab(r, rotors, rotorLargestSetting, size);
-		// pp(r,rotors);
-		repeats++;
-		if (solutionFound(r)==true)
-		{
-			stopCond = 1;
-			// sending solution to main thread
-			pp(r,rotors);
-			MPI_Isend(r, rotors, MPI_INT, MPI_ROOT_PROCESS_RANK, 0, MPI_COMM_WORLD, &sendRequest);
-			
-		}
-		int found = stopCond;
-		if (found)
-		{
-			cout << rank << ": found solution" << endl;
-			MPI_Request req;
-			MPI_Isend(NULL, 0, MPI_CHAR, MPI_ROOT_PROCESS_RANK, 999, MPI_COMM_WORLD, &req);
-			if (rank != MPI_ROOT_PROCESS_RANK)
-			{
-				MPI_Wait(&all_recv_stop, MPI_STATUS_IGNORE);
-				MPI_Reduce(&found, NULL, 1, MPI_INT, MPI_SUM, MPI_ROOT_PROCESS_RANK, MPI_COMM_WORLD);
-				MPI_Wait(&req, MPI_STATUS_IGNORE);
-				break;
-			}
-			MPI_Wait(&req, MPI_STATUS_IGNORE);
-		}
-		if (rank == MPI_ROOT_PROCESS_RANK)
-		{
-			if (forwardStopSignal(&root_recv_stop, &all_recv_stop, found))
-			{
-				break;
-			}
-		}
-		else
-		{
-			int stop_signal;
-			MPI_Test(&all_recv_stop, &stop_signal, MPI_STATUS_IGNORE);
-			if (stop_signal)
-			{
-				MPI_Reduce(&found, NULL, 1, MPI_INT, MPI_SUM, MPI_ROOT_PROCESS_RANK, MPI_COMM_WORLD);
-				cout << rank << ": stopping" << endl;
-				break;
-			}
-		}
-	};
-
-	if (rank == MPI_ROOT_PROCESS_RANK)
-	{
-		MPI_Status status;
-		uint *res = new uint[rotors];
-
-		cout << "czekam na wynik" << endl;
-		MPI_Recv(res, rotors, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &status);
-		cout << "Result from: " << status.MPI_SOURCE << endl;
-		for (uint rotor = 0; rotor < rotors; rotor++)
-		{
-			rotorPositions[rotor] = res[rotor];
-		}
-		enigma->setRotorPositions(rotorPositions);
-		uint *result2 = new uint[rotors];
-		getResult(result2);
-		showUint(rotorPositions, rotors);
+		MPI_Irecv(&found, 1, MPI_UNSIGNED, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &foundRequest);
 	}
 
-	cout << rank << ": " << repeats << " iterations" << endl;
+	for (r[0] = myFirstRotorSetting; r[0] <= myMaxRotorSetting; r[0]++)
+	{
 
+		for (r[1] = 0; r[1] <= rMax[1]; r[1]++)
+		{
+
+			for (r[2] = 0; r[2] <= rMax[2]; r[2]++)
+			{
+
+				for (r[3] = 0; r[3] <= rMax[3]; r[3]++)
+				{
+
+					for (r[4] = 0; r[4] <= rMax[4]; r[4]++)
+					{
+
+						for (r[5] = 0; r[5] <= rMax[5]; r[5]++)
+						{
+
+							for (r[6] = 0; r[6] <= rMax[6]; r[6]++)
+							{
+								
+								for (r[7] = 0; r[7] <= rMax[7]; r[7]++)
+								{
+									
+									for (r[8] = 0; r[8] <= rMax[8]; r[8]++)
+									{
+
+										for (r[9] = 0; r[9] <= rMax[9]; r[9]++)
+										{
+
+											if (rank == MPI_ROOT_PROCESS_RANK)
+											{
+												if (solutionFound(r))
+												{
+													cout << rank << " found" << endl;
+													for (int i = 1; i < size; i++)
+													{
+														MPI_Isend(&found, 1, MPI_UNSIGNED, i, 0, MPI_COMM_WORLD, &foundRequest);
+													}
+													goto EXIT_ALL_LOOPS;
+												}
+												MPI_Test(&request, &ready, MPI_STATUS_IGNORE);
+												if (ready)
+												{
+													for (int i = 0; i < rotors; i++)
+													{
+														rotorPositions[i] = rotorsPositionMessage[i];
+													}
+													for (int i = 1; i < size; i++)
+													{
+														MPI_Isend(&found, 1, MPI_UNSIGNED, i, 0, MPI_COMM_WORLD, &foundRequest);
+													}
+
+													goto EXIT_ALL_LOOPS;
+												}
+											}
+
+											if (rank != MPI_ROOT_PROCESS_RANK)
+											{
+												MPI_Test(&foundRequest, &received, MPI_STATUS_IGNORE);
+												if (received)
+												{
+													// cout << rank << "rec fin";
+													goto EXIT_ALL_LOOPS;
+												}
+
+												if (solutionFound(r))
+												{
+													goto EXIT_ALL_LOOPS;
+												}
+											}
+
+										} // 9
+									}	  // 8
+								}		  // 7
+							}			  // 6
+						}				  // 5
+					}					  // 4
+				}						  // 3
+			}							  // 2
+		}								  // 1
+	}									  // 0
+
+EXIT_ALL_LOOPS:
+	delete[] rMax;
 	delete[] r;
 }
 
-void setRootResutl()
-{
-}
+// TO PRZEROBIC
 
 bool MPIEnigmaBreaker::solutionFound(uint *rotorSettingsProposal)
 {
 	for (uint rotor = 0; rotor < rotors; rotor++)
-	{
 		rotorPositions[rotor] = rotorSettingsProposal[rotor];
-	}
+
 	enigma->setRotorPositions(rotorPositions);
 	uint *decodedMessage = new uint[messageLength];
 
@@ -239,10 +231,46 @@ bool MPIEnigmaBreaker::solutionFound(uint *rotorSettingsProposal)
 	}
 
 	bool result = comparator->messageDecoded(decodedMessage);
+	if (result)
+	{ // found, if not in root, then send it
+		int rank;
+		MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+		uint *rotorsPositionMessage = new uint[rotors];
+		if (rank != MPI_ROOT_PROCESS_RANK)
+		{
+			for (int i = 0; i < rotors; i++)
+			{
+				rotorsPositionMessage[i] = rotorPositions[i];
+			}
+			MPI_Send(rotorsPositionMessage, rotors, MPI_UNSIGNED, MPI_ROOT_PROCESS_RANK, 0, MPI_COMM_WORLD);
+		}
+	}
 
 	delete[] decodedMessage;
 
 	return result;
+}
+
+void MPIEnigmaBreaker::setSampleToFind(uint *expected, uint expectedLength)
+{
+	MPIEnigmaBreaker::expectedLength = expectedLength;
+
+	MPIEnigmaBreaker::expectedBuffer = new uint[expectedLength];
+
+	for (uint i = 0; i < expectedLength; i++)
+	{
+		expectedBuffer[i] = expected[i];
+	}
+
+	comparator->setExpectedFragment(expected, expectedLength);
+}
+
+void MPIEnigmaBreaker::setMessageToDecode(uint *message, uint messageLength)
+{
+	comparator->setMessageLength(messageLength);
+	this->messageLength = messageLength;
+	this->messageToDecode = message;
+	messageProposal = new uint[messageLength];
 }
 
 void MPIEnigmaBreaker::getResult(uint *rotorPositions)
