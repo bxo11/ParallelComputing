@@ -28,8 +28,7 @@ void MPIEnigmaBreaker::crackMessage()
 		MPI_Bcast(expectedBuffer, expectedLength, MPI_UNSIGNED, MPI_ROOT_PROCESS_RANK, MPI_COMM_WORLD); // expected msg
 		MPI_Bcast(messageToDecode, messageLength, MPI_UNSIGNED, MPI_ROOT_PROCESS_RANK, MPI_COMM_WORLD);
 	}
-
-	if (rank != MPI_ROOT_PROCESS_RANK)
+	else
 	{
 		expectedBuffer = new uint[expectedLength];
 		messageToDecode = new uint[messageLength];
@@ -41,16 +40,10 @@ void MPIEnigmaBreaker::crackMessage()
 		setMessageToDecode(messageToDecode, messageLength);
 	}
 
-	// teraz zastanowic sie nad swoim zakresem prac po rotorsetting i ilosci procesow
-	// rank;
-	// rotorLargestSetting
-
 	int myFirstRotorSetting = 0;
 	int myMaxRotorSetting = 0;
 
-	// WYLICZANIE CZESCI DLA DANEGO PROCESU
-
-	int proportions[size]; // dla kazdego procesu, ile przyjmie , pod jego index
+	int proportions[size]; 
 
 	int forAll = rotorLargestSetting / size;
 
@@ -121,47 +114,26 @@ void MPIEnigmaBreaker::crackMessage()
 	{
 		MPI_Irecv(rotorsPositionMessage, rotors, MPI_UNSIGNED, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &request);
 	}
-
-	if (rank != MPI_ROOT_PROCESS_RANK)
+	else
 	{
 		MPI_Irecv(&found, 1, MPI_UNSIGNED, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &foundRequest);
 	}
 
 	for (r[0] = myFirstRotorSetting; r[0] <= myMaxRotorSetting; r[0]++)
-	{
-
 		for (r[1] = 0; r[1] <= rMax[1]; r[1]++)
-		{
-
 			for (r[2] = 0; r[2] <= rMax[2]; r[2]++)
-			{
-
 				for (r[3] = 0; r[3] <= rMax[3]; r[3]++)
-				{
-
 					for (r[4] = 0; r[4] <= rMax[4]; r[4]++)
-					{
-
 						for (r[5] = 0; r[5] <= rMax[5]; r[5]++)
-						{
-
 							for (r[6] = 0; r[6] <= rMax[6]; r[6]++)
-							{
-								
 								for (r[7] = 0; r[7] <= rMax[7]; r[7]++)
-								{
-									
 									for (r[8] = 0; r[8] <= rMax[8]; r[8]++)
-									{
-
 										for (r[9] = 0; r[9] <= rMax[9]; r[9]++)
 										{
-
 											if (rank == MPI_ROOT_PROCESS_RANK)
 											{
 												if (solutionFound(r))
 												{
-													cout << rank << " found" << endl;
 													for (int i = 1; i < size; i++)
 													{
 														MPI_Isend(&found, 1, MPI_UNSIGNED, i, 0, MPI_COMM_WORLD, &foundRequest);
@@ -179,36 +151,19 @@ void MPIEnigmaBreaker::crackMessage()
 													{
 														MPI_Isend(&found, 1, MPI_UNSIGNED, i, 0, MPI_COMM_WORLD, &foundRequest);
 													}
-
 													goto EXIT_ALL_LOOPS;
 												}
 											}
-
-											if (rank != MPI_ROOT_PROCESS_RANK)
+											else
 											{
 												MPI_Test(&foundRequest, &received, MPI_STATUS_IGNORE);
-												if (received)
-												{
-													// cout << rank << "rec fin";
-													goto EXIT_ALL_LOOPS;
-												}
-
-												if (solutionFound(r))
+												if (received || solutionFound(r))
 												{
 													goto EXIT_ALL_LOOPS;
 												}
 											}
 
-										} // 9
-									}	  // 8
-								}		  // 7
-							}			  // 6
-						}				  // 5
-					}					  // 4
-				}						  // 3
-			}							  // 2
-		}								  // 1
-	}									  // 0
+	}
 
 EXIT_ALL_LOOPS:
 	delete[] rMax;
