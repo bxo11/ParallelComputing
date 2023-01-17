@@ -7,8 +7,6 @@ class MPIEnigmaBreaker : public EnigmaBreaker
 {
 private:
 	bool solutionFound(uint *rotorSettingsProposal);
-	uint *expectedBuffer;
-	uint expectedLength;
 public:
 	MPIEnigmaBreaker(Enigma *enigma, MessageComparator *comparator);
 	void crackMessage();
