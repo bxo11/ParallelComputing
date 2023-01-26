@@ -2,17 +2,40 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public class ParallelCalculator implements DeltaParallelCalculator {
-    private int threadNumber;
-    private DeltaReceiverImpl deltaReceiver;
+    protected int threadNumber;
+    private DeltaReceiver deltaReceiver;
     private final Map<Integer, DataImpl> waitingVectors = new HashMap<>();
     private final Set<Integer> vectorHistory = new HashSet<>(); //single value represent smaller index for a pair of Data, e.g. 1 represents a pair of 1 and 2
     private final Map<Integer, Integer> numberOfVectorsUsage = new HashMap<>();
     private final Map<Integer, List<Delta>> deltaQueue = new TreeMap<>();
     private int nextDeltaIndexToReturn = 0;
     private final Map<Integer, Integer> taskOrder = new TreeMap<>(); //single value represent smaller index for a pair of Data, e.g. 1 represents a pair of 1 and 2
-    private ExecutorService tasksExecutor;
-    private ExecutorService findDiffsExecutor;
     List<Future<Boolean>> taskFutures = new ArrayList<>();
+    Timer timer;
+
+    private final BlockingQueue<Integer> queue = new LinkedBlockingQueue<>();
+    private Thread workerThread;
+
+    public void dataProcessor() {
+        if (workerThread == null || !workerThread.isAlive()){
+        workerThread = new Thread(() -> {
+            while (true) {
+                try {
+                    // Pobieramy dane z kolejki. Metoda ta jest blokująca, co oznacza, że wątek
+                    // zostanie zawieszony, jeśli kolejka będzie pusta.
+                    int data = queue.take();
+
+                    // Tutaj przetwarzamy dane.
+                    Thread t = new Thread( new DiffsFinder());
+                    t.start();
+                } catch (InterruptedException e) {
+                    // Obsługujemy przerwanie wątku.
+                    break;
+                }
+            }
+        });
+        workerThread.start();
+    }}
 
     public boolean isFinished() {
         for (Future<Boolean> f : taskFutures) {
@@ -75,13 +98,14 @@ public class ParallelCalculator implements DeltaParallelCalculator {
     @Override
     public void setThreadsNumber(int threads) {
         this.threadNumber = threads;
-        this.tasksExecutor = Executors.newSingleThreadExecutor();
-        this.findDiffsExecutor = Executors.newFixedThreadPool(threads);
+//        this.tasksExecutor = Executors.newSingleThreadExecutor();
+        timer = new Timer(5000);
+        timer.start();
     }
 
     @Override
     public void setDeltaReceiver(DeltaReceiver receiver) {
-        this.deltaReceiver = (DeltaReceiverImpl) receiver;
+        this.deltaReceiver = receiver;
     }
 
     @Override
@@ -104,33 +128,42 @@ public class ParallelCalculator implements DeltaParallelCalculator {
         }
 
         for (int i = 0; i < repeats; i++) {
-            final Future<Boolean> future = tasksExecutor.submit(new DiffsFinder());
-            taskFutures.add(future);
+            queue.add(i);
+//            final Future<Boolean> future = tasksExecutor.submit(new DiffsFinder());
+//            taskFutures.add(future);
         }
+        dataProcessor();
+        timer.reset();
     }
 
-    class DiffsFinder implements Callable<Boolean> {
+    class DiffsFinder implements Runnable {
 
         @Override
-        public Boolean call() {
+        public void run() {
             int id = popFirstTask();
             increaseUsage(id);
             increaseUsage(id + 1);
 
             List<Integer> d1 = waitingVectors.get(id).getVector();
             List<Integer> d2 = waitingVectors.get(id + 1).getVector();
-            List<Future<List<Delta>>> futures = new ArrayList<>();
+//            List<Future<List<Delta>>> futures = new ArrayList<>();
+            List<FutureTask<List<Delta>>> futureTasks = new ArrayList<>();
+            Thread[] threadArray = new Thread[threadNumber];
 
             int chunkSize = (d1.size() + threadNumber - 1) / threadNumber; // divide by threads rounded up.
             for (int t = 0; t < threadNumber; t++) {
                 int start = t * chunkSize;
                 int end = Math.min(start + chunkSize, d1.size());
-                final Future<List<Delta>> future = findDiffsExecutor.submit(new ProcessVector(start, end, id, d1, d2));
-                futures.add(future);
+//                final Future<List<Delta>> future = findDiffsExecutor.submit(new ProcessVector(start, end, id, d1, d2));
+                final FutureTask<List<Delta>> futureTask = new FutureTask<>(new ProcessVector(start, end, id, d1, d2));
+//                futures.add(future);
+                futureTasks.add(futureTask);
+                threadArray[t] = new Thread(futureTask);
+               threadArray[t].start();
             }
 
             List<Delta> diffs = new ArrayList<>();
-            for (Future<List<Delta>> f : futures) {
+            for (FutureTask<List<Delta>> f : futureTasks) {
                 try {
                     diffs.addAll(f.get());
                 } catch (InterruptedException | ExecutionException ignored) {
@@ -144,9 +177,43 @@ public class ParallelCalculator implements DeltaParallelCalculator {
             }
             removeCheckedData();
 
-            return true;
         }
     }
+
+    class Timer {
+        private long startTime;
+        private long delay;
+        private Thread thread;
+
+        public Timer(long delay) {
+            this.delay = delay;
+            reset();
+        }
+
+        public void reset() {
+            startTime = System.currentTimeMillis();
+        }
+
+        public boolean isExpired() {
+            long elapsedTime = System.currentTimeMillis() - startTime;
+            return elapsedTime >= delay;
+        }
+
+        public void start() {
+            thread = new Thread(() -> {
+                while (!isExpired()) {
+                    try {
+                        TimeUnit.MILLISECONDS.sleep(100);
+                    } catch (InterruptedException e) {
+                        // ignore
+                    }
+                }
+               workerThread.interrupt();
+            });
+            thread.start();
+        }
+    }
+
 
 }
 
@@ -216,3 +283,5 @@ class DataImpl implements Data {
         return vector.get(idx);
     }
 }
+
+
