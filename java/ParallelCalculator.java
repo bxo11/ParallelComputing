@@ -1,25 +1,24 @@
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ParallelCalculator implements DeltaParallelCalculator {
     private int threadNumber;
+    private int nextDeltaIndexToReturn = 0;
     private DeltaReceiver deltaReceiver;
-    private final Map<Integer, DataImpl> waitingVectors = new HashMap<>();
+    private final Map<Integer, Data> waitingVectors = new HashMap<>();
     private final Set<Integer> vectorHistory = new HashSet<>(); //single value represent smaller index for a pair of Data, e.g. 1 represents a pair of 1 and 2
     private final Map<Integer, Integer> numberOfVectorsUsage = new HashMap<>();
-    private final Map<Integer, List<Delta>> deltaQueue = new TreeMap<>();
-    private int nextDeltaIndexToReturn = 0;
-    private final Map<Integer, Integer> taskOrder = new TreeMap<>(); //single value represent smaller index for a pair of Data, e.g. 1 represents a pair of 1 and 2
-    private ExecutorService tasksExecutor;
-    List<Future<Boolean>> taskFutures = new ArrayList<>();
+    private ExecutorService findDiffsExecutor;
+    private Map<Integer, DeltaProxy> deltas = new TreeMap<>();
 
-    //first and last vector have max usage equals 1
-    synchronized private void increaseUsage(int waitingDataId) {
+
+    private void increaseUsage(int waitingDataId) {
         int actualValue = numberOfVectorsUsage.get(waitingDataId);
         numberOfVectorsUsage.put(waitingDataId, actualValue + 1);
     }
 
-    synchronized private void removeCheckedData() {
+    private void removeCheckedData() {
         List<Integer> indexesToRemove = new ArrayList<>();
         for (Map.Entry<Integer, Integer> entry : numberOfVectorsUsage.entrySet()) {
             if (entry.getValue() == 2) {
@@ -33,44 +32,16 @@ public class ParallelCalculator implements DeltaParallelCalculator {
         }
     }
 
-    synchronized private void returnDeltas() {
-        Iterator<Map.Entry<Integer, List<Delta>>> iterator = deltaQueue.entrySet().iterator();
-        Map.Entry<Integer, List<Delta>> current;
-        if (iterator.hasNext()) {
-            current = iterator.next();
-        } else {
-            return;
-        }
-        List<Integer> indexesToRemove = new ArrayList<>();
-
-        List<Delta> listToSend = new ArrayList<>();
-        while (nextDeltaIndexToReturn == current.getKey()) {
-            listToSend.addAll(current.getValue());
-//            this.deltaReceiver.accept(current.getValue());
-            indexesToRemove.add(current.getKey());
-            if (iterator.hasNext()) current = iterator.next();
-            nextDeltaIndexToReturn++;
-        }
-
-        for (int i : indexesToRemove) {
-            deltaQueue.remove(i);
-        }
-        this.deltaReceiver.accept(listToSend);
-        if(nextDeltaIndexToReturn == vectorHistory.size() -1){
-            tasksExecutor.shutdown();
-        }
-    }
-
-    synchronized private int popFirstTask() {
-        int returnId = taskOrder.entrySet().iterator().next().getKey();
-        taskOrder.remove(returnId);
-        return returnId;
-    }
-
     @Override
     public void setThreadsNumber(int threads) {
         this.threadNumber = threads;
-        this.tasksExecutor = Executors.newSingleThreadExecutor();
+        this.findDiffsExecutor = new ThreadPoolExecutor(
+                this.threadNumber,
+                this.threadNumber,
+                100L,
+                TimeUnit.MILLISECONDS,
+                new PriorityBlockingQueue<>(threadNumber, (firstTask, secondTask) -> Comparator.comparingInt(ProcessVector::getId).compare( (ProcessVector) firstTask, (ProcessVector) secondTask ))
+        );
     }
 
     @Override
@@ -80,107 +51,117 @@ public class ParallelCalculator implements DeltaParallelCalculator {
 
     @Override
     public void addData(Data data) {
-        synchronized (waitingVectors){
-//        if (this.vectorHistory.contains(data.getDataId())) return;
-
-        this.waitingVectors.put(data.getDataId(), (DataImpl) data);
+        this.waitingVectors.put(data.getDataId(), data);
         this.vectorHistory.add(data.getDataId());
         this.numberOfVectorsUsage.put(data.getDataId(), 0);
-        int repeats = 0;
 
         if (vectorHistory.contains(data.getDataId() - 1)) {
-            taskOrder.put(data.getDataId() - 1, data.getDataId() - 1);
-            repeats++;
+            extracted(data.getDataId() - 1);
         }
 
         if (vectorHistory.contains(data.getDataId() + 1)) {
-            taskOrder.put(data.getDataId(), data.getDataId());
-            repeats++;
+            extracted(data.getDataId());
+        }
+    }
+
+    private void extracted(int id) {
+        deltas.put(id, new DeltaProxy());
+        increaseUsage(id);
+        increaseUsage(id + 1);
+
+        Data d1 = waitingVectors.get(id);
+        Data d2 = waitingVectors.get(id + 1);
+
+        int chunkSize = (d1.getSize() + threadNumber - 1) / threadNumber; // divide by threads rounded up.
+        for (int t = 0; t < threadNumber; t++) {
+            int start = t * chunkSize;
+            int end = Math.min(start + chunkSize, d1.getSize());
+            findDiffsExecutor.execute(new ProcessVector(start, end, id, d1, d2));
+        }
+        removeCheckedData();
+    }
+
+
+    private class DeltaProxy {
+        private final List<Delta> deltas;
+        private final AtomicInteger counter;
+        DeltaProxy() {
+            counter = new AtomicInteger(0);
+            deltas = new ArrayList<>();
         }
 
-        for (int i = 0; i < repeats; i++) {
-            tasksExecutor.execute(new DiffsFinder());
-        }
-    }}
+       synchronized public void addAll(List<Delta> incomingDeltas) {
 
-    class DiffsFinder implements Runnable {
+            synchronized (deltas) {
 
-        @Override
-        public void run() {
-            int id = popFirstTask();
-//            increaseUsage(id);
-//            increaseUsage(id + 1);
-            List<Integer> d1;
-            List<Integer> d2;
+                deltas.addAll(incomingDeltas);
+                counter.set(counter.get() + 1);
 
-            d1 = waitingVectors.get(id).getVector();
-            d2 = waitingVectors.get(id + 1).getVector();
-
-            List<FutureTask<List<Delta>>> futureTasks = new ArrayList<>();
-            Thread[] threadArray = new Thread[threadNumber];
-
-            int chunkSize = (d1.size() + threadNumber - 1) / threadNumber; // divide by threads rounded up.
-            for (int t = 0; t < threadNumber; t++) {
-                int start = t * chunkSize;
-                int end = Math.min(start + chunkSize, d1.size());
-//                final Future<List<Delta>> future = findDiffsExecutor.submit(new ProcessVector(start, end, id, d1, d2));
-                final FutureTask<List<Delta>> futureTask = new FutureTask<>(new ProcessVector(id, d1.subList(start,end), d2.subList(start,end)));
-//                futures.add(future);
-                futureTasks.add(futureTask);
-                threadArray[t] = new Thread(futureTask);
-                threadArray[t].start();
-            }
-
-            List<Delta> diffs = new ArrayList<>();
-            for (FutureTask<List<Delta>> f : futureTasks) {
-                try {
-                    diffs.addAll(f.get());
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                } catch (ExecutionException e) {
-                    throw new RuntimeException(e);
+                if (counter.get() != threadNumber) {
+                    return;
                 }
             }
 
-            deltaQueue.put(id, diffs);
-            returnDeltas();
+            for (int id : ParallelCalculator.this.deltas.keySet()) {
 
-//            removeCheckedData();
-        }
-    }
+                synchronized (deltas) {
 
-}
+                    if (nextDeltaIndexToReturn == id) {
 
-class ProcessVector implements Callable<List<Delta>> {
-    private final int id;
+                        if (ParallelCalculator.this.deltas.get(id).counter.get() != threadNumber) {
+                            return;
+                        }
 
-    private final List<Integer> d1;
-    private final List<Integer> d2;
+                        deltaReceiver.accept(ParallelCalculator.this.deltas.get(id).deltas);
+                        nextDeltaIndexToReturn++;
 
-    public ProcessVector(int id, List<Integer> d11, List<Integer> d22) {
-        this.id =id;
-        this.d1 = d11;
-        this.d2 = d22;
-    }
-
-    @Override
-    public List<Delta> call() {
-        List<Delta> diffs = new ArrayList<>();
-        int diff;
-        for (int i = 0; i < d1.size(); i++) {
-            diff = d2.get(i) - d1.get(i);
-            if (diff != 0) {
-                diffs.add(new Delta(id, i, diff));
+                    }
+                }
             }
         }
-        return diffs;
     }
+
+    class ProcessVector implements Runnable {
+        private final int start;
+        private final int end;
+        private final int id;
+        private final Data d1;
+        private final Data d2;
+
+        public int getId() {
+            return id;
+        }
+
+        public ProcessVector(int start, int end, int id, Data d1, Data d2) {
+            this.start = start;
+            this.end = end;
+            this.id = id;
+            this.d1 = d1;
+            this.d2 = d2;
+        }
+
+        @Override
+        public void run() {
+            List<Delta> diffs = new ArrayList<>();
+            for (int i = start; i < end; i++) {
+                int diff;
+                diff = d2.getValue(i) - d1.getValue(i);
+                if (diff != 0) {
+                    diffs.add(new Delta(id, i, diff));
+                }
+            }
+            deltas.get(id).addAll(diffs);
+        }
+    }
+
 }
+
+
 
 class DeltaReceiverImpl implements DeltaReceiver {
     public final List<Delta> deltas = new ArrayList<>();
     @Override
-    synchronized public void accept(List<Delta> deltas) {
+    public void accept(List<Delta> deltas) {
         this.deltas.addAll(deltas);
     }
 }
@@ -192,10 +173,6 @@ class DataImpl implements Data {
     public DataImpl(int dataId, List<Integer> vector) {
         this.dataId = dataId;
         this.vector = vector;
-    }
-
-    public List<Integer> getVector() {
-        return vector;
     }
 
     @Override
