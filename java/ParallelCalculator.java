@@ -10,7 +10,7 @@ public class ParallelCalculator implements DeltaParallelCalculator {
     private final Set<Integer> vectorHistory = new HashSet<>(); //single value represent smaller index for a pair of Data, e.g. 1 represents a pair of 1 and 2
     private final Map<Integer, Integer> numberOfVectorsUsage = new HashMap<>();
     private ExecutorService findDiffsExecutor;
-    private Map<Integer, DeltaProxy> deltas = new TreeMap<>();
+    private final Map<Integer, DeltaSender> deltasForVector = new TreeMap<>();
 
 
     private void increaseUsage(int waitingDataId) {
@@ -38,9 +38,9 @@ public class ParallelCalculator implements DeltaParallelCalculator {
         this.findDiffsExecutor = new ThreadPoolExecutor(
                 this.threadNumber,
                 this.threadNumber,
-                100L,
+                1000,
                 TimeUnit.MILLISECONDS,
-                new PriorityBlockingQueue<>(threadNumber, (firstTask, secondTask) -> Comparator.comparingInt(ProcessVector::getId).compare( (ProcessVector) firstTask, (ProcessVector) secondTask ))
+                new PriorityBlockingQueue<>(1000, (o1, o2) -> Comparator.comparingInt(ProcessVector::getId).compare((ProcessVector) o1, (ProcessVector) o2))
         );
     }
 
@@ -56,18 +56,18 @@ public class ParallelCalculator implements DeltaParallelCalculator {
         this.numberOfVectorsUsage.put(data.getDataId(), 0);
 
         if (vectorHistory.contains(data.getDataId() - 1)) {
-            extracted(data.getDataId() - 1);
+            compute(data.getDataId() - 1);
         }
 
         if (vectorHistory.contains(data.getDataId() + 1)) {
-            extracted(data.getDataId());
+            compute(data.getDataId());
         }
     }
 
-    private void extracted(int id) {
-        deltas.put(id, new DeltaProxy());
-        increaseUsage(id);
-        increaseUsage(id + 1);
+    private void compute(int id) {
+        deltasForVector.put(id, new DeltaSender());
+//        increaseUsage(id);
+//        increaseUsage(id + 1);
 
         Data d1 = waitingVectors.get(id);
         Data d2 = waitingVectors.get(id + 1);
@@ -78,43 +78,32 @@ public class ParallelCalculator implements DeltaParallelCalculator {
             int end = Math.min(start + chunkSize, d1.getSize());
             findDiffsExecutor.execute(new ProcessVector(start, end, id, d1, d2));
         }
-        removeCheckedData();
+//        removeCheckedData();
     }
 
+    private class DeltaSender {
+        private final List<Delta> deltas = new ArrayList<>();
+        private final AtomicInteger counter = new AtomicInteger(0);
 
-    private class DeltaProxy {
-        private final List<Delta> deltas;
-        private final AtomicInteger counter;
-        DeltaProxy() {
-            counter = new AtomicInteger(0);
-            deltas = new ArrayList<>();
-        }
-
-       synchronized public void addAll(List<Delta> incomingDeltas) {
-
-            synchronized (deltas) {
-
-                deltas.addAll(incomingDeltas);
-                counter.set(counter.get() + 1);
+        public void sendDeltas(List<Delta> inputDeltas) {
+            synchronized (deltasForVector) {
+                deltas.addAll(inputDeltas);
+                counter.getAndIncrement();
 
                 if (counter.get() != threadNumber) {
                     return;
                 }
             }
 
-            for (int id : ParallelCalculator.this.deltas.keySet()) {
-
-                synchronized (deltas) {
-
+            for (int id : deltasForVector.keySet()) {
+                synchronized (deltasForVector) {
                     if (nextDeltaIndexToReturn == id) {
-
-                        if (ParallelCalculator.this.deltas.get(id).counter.get() != threadNumber) {
+                        if (deltasForVector.get(id).counter.get() != threadNumber) {
                             return;
                         }
 
-                        deltaReceiver.accept(ParallelCalculator.this.deltas.get(id).deltas);
+                        deltaReceiver.accept(deltasForVector.get(id).deltas);
                         nextDeltaIndexToReturn++;
-
                     }
                 }
             }
@@ -150,16 +139,18 @@ public class ParallelCalculator implements DeltaParallelCalculator {
                     diffs.add(new Delta(id, i, diff));
                 }
             }
-            deltas.get(id).addAll(diffs);
+            synchronized (deltasForVector) {
+                deltasForVector.get(id).sendDeltas(diffs);
+            }
         }
     }
 
 }
 
 
-
 class DeltaReceiverImpl implements DeltaReceiver {
     public final List<Delta> deltas = new ArrayList<>();
+
     @Override
     public void accept(List<Delta> deltas) {
         this.deltas.addAll(deltas);
@@ -190,3 +181,4 @@ class DataImpl implements Data {
         return vector.get(idx);
     }
 }
+// // // // //
