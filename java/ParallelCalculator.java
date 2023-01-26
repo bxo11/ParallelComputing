@@ -40,7 +40,7 @@ public class ParallelCalculator implements DeltaParallelCalculator {
                 this.threadNumber,
                 1000,
                 TimeUnit.MILLISECONDS,
-                new PriorityBlockingQueue<>(1000, (o1, o2) -> Comparator.comparingInt(ProcessVector::getId).compare((ProcessVector) o1, (ProcessVector) o2))
+                new PriorityBlockingQueue<>(threadNumber, (o1, o2) -> Comparator.comparingInt(ProcessVector::getId).compare((ProcessVector) o1, (ProcessVector) o2))
         );
     }
 
@@ -50,7 +50,7 @@ public class ParallelCalculator implements DeltaParallelCalculator {
     }
 
     @Override
-    public void addData(Data data) {
+    synchronized public void addData(Data data) {
         this.waitingVectors.put(data.getDataId(), data);
         this.vectorHistory.add(data.getDataId());
         this.numberOfVectorsUsage.put(data.getDataId(), 0);
@@ -83,22 +83,20 @@ public class ParallelCalculator implements DeltaParallelCalculator {
 
     private class DeltaSender {
         private final List<Delta> deltas = new ArrayList<>();
-        private final AtomicInteger counter = new AtomicInteger(0);
+        private int counter = 0;
 
         public void sendDeltas(List<Delta> inputDeltas) {
             synchronized (deltasForVector) {
                 deltas.addAll(inputDeltas);
-                counter.getAndIncrement();
+                counter++;
 
-                if (counter.get() != threadNumber) {
+                if (counter != threadNumber) {
                     return;
                 }
-            }
 
-            for (int id : deltasForVector.keySet()) {
-                synchronized (deltasForVector) {
+                for (int id : deltasForVector.keySet()) {
                     if (nextDeltaIndexToReturn == id) {
-                        if (deltasForVector.get(id).counter.get() != threadNumber) {
+                        if (deltasForVector.get(id).counter != threadNumber) {
                             return;
                         }
 
@@ -181,4 +179,4 @@ class DataImpl implements Data {
         return vector.get(idx);
     }
 }
-// // // // //
+// // // // // // // //
